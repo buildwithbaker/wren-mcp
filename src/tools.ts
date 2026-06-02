@@ -16,6 +16,7 @@ import {
   readNoteByWrenId,
   getIndexSummary,
   NoteNotFoundError,
+  NoteUnreadableError,
   MAX_LIMIT,
 } from './notes-source.js';
 import { createInboxNote } from './note-writer.js';
@@ -63,6 +64,7 @@ async function requireCatalog(ctx: ToolContext) {
 
 function toFailure(toolName: string, err: unknown): ToolResult {
   if (err instanceof NoteNotFoundError) return fail(err.message);
+  if (err instanceof NoteUnreadableError) return fail(err.message);
   if (err instanceof Error && err.name === 'NotesDirNotConfigured') return fail(err.message);
   // Unreadable file / unexpected — log detail to stderr, return a clean message.
   logError(`${toolName} failed:`, err);
