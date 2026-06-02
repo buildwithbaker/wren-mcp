@@ -160,16 +160,56 @@ export async function loadIndex(notesDir: string): Promise<Catalog> {
   }
   // Normalize so downstream code can rely on arrays/strings being present.
   catalog.notes = catalog.notes.map(normalizeEntry);
+  // Reconcile the main corpus with disk: an on-disk `.md` that the index omits
+  // (e.g. a Drive-synced note that landed before the locally-synced
+  // `.wren-index.json` caught up — index lag) is picked up here. Cheap: one
+  // readdir + reads ONLY the files missing from the index (normally zero). The
+  // index remains authoritative for notes it lists; this only ADDS stragglers.
+  const mainCorpus = await reconcileMainCorpus(notesDir, catalog.notes);
   // Disk is the source of truth for staged notes: replace the index's inbox
   // entries with a live `_inbox/` scan. This makes a note created via
   // wren_create_note immediately readable + visible in get_index even before
   // Wren has regenerated its index. (Same spirit as the per-note staleness
-  // re-read; the main corpus still comes from the index — no full rescan.)
+  // re-read.)
   const inboxLive = await scanInboxNotes(notesDir);
-  catalog.notes = [...catalog.notes.filter((n) => !n.inbox), ...inboxLive];
+  catalog.notes = [...mainCorpus, ...inboxLive];
   catalog.notes.sort((a, b) => (a.updated < b.updated ? 1 : a.updated > b.updated ? -1 : 0));
   catalog.count = catalog.notes.length;
   return catalog;
+}
+
+/**
+ * Return the index's main-corpus (non-inbox) entries PLUS any top-level `.md`
+ * files present on disk but absent from the index — a safety net for index lag
+ * (the Drive-synced index briefly trailing the synced note files). Only the
+ * missing files are read; if the dir can't be listed we trust the index as-is.
+ */
+async function reconcileMainCorpus(
+  notesDir: string,
+  indexNotes: NoteEntry[]
+): Promise<NoteEntry[]> {
+  const mainFromIndex = indexNotes.filter((n) => !n.inbox);
+  let dirents: import('node:fs').Dirent[];
+  try {
+    dirents = await fs.readdir(notesDir, { withFileTypes: true });
+  } catch {
+    return mainFromIndex; // can't reconcile — trust the index
+  }
+  const known = new Set(mainFromIndex.map((n) => n.file || n.path));
+  const extras: NoteEntry[] = [];
+  for (const dirent of dirents) {
+    if (!dirent.isFile()) continue;
+    const name = dirent.name;
+    if (!name.toLowerCase().endsWith('.md')) continue;
+    if (RESERVED_NOTE_NAMES.has(name)) continue;
+    if (known.has(name)) continue;
+    const entry = await parseNoteFile(notesDir, name, name, false);
+    if (entry) {
+      log(`Index omits on-disk note ${name}; added from disk (index lag).`);
+      extras.push(entry);
+    }
+  }
+  return [...mainFromIndex, ...extras];
 }
 
 function normalizeEntry(e: Partial<NoteEntry>): NoteEntry {
@@ -269,6 +309,14 @@ async function parseNoteFile(
   try {
     const full = path.join(notesDir, relPath);
     const text = await fs.readFile(full, 'utf8');
+    // Drive stream-mode placeholders can read as 0 bytes (or whitespace) until
+    // hydrated. Skip them rather than emit a junk catalog entry (empty wrenId/
+    // title) — they'll appear once Drive materializes the file. A read that
+    // *throws* (also possible for placeholders) is handled by the catch below.
+    if (text.trim().length === 0) {
+      log(`Skipping empty/unhydrated note ${relPath} (0 bytes — Drive placeholder?).`);
+      return null;
+    }
     const { frontmatter, body } = parseFrontmatter(text);
     const stat = await fs.stat(full);
     const mtimeIso = stat.mtime.toISOString();
@@ -439,7 +487,15 @@ export async function readNoteByWrenId(
   }
   const rel = entry.path || entry.file;
   const full = path.join(notesDir, rel);
-  const text = await fs.readFile(full, 'utf8');
+  let text: string;
+  try {
+    text = await fs.readFile(full, 'utf8');
+  } catch (err) {
+    // A Drive stream-mode placeholder can throw on read until hydrated. Surface
+    // a clear, actionable error instead of a raw ENOENT (tools.ts turns this
+    // into a clean tool error, never a crash).
+    throw new NoteUnreadableError(wrenId, rel, err);
+  }
   const { frontmatter, body } = parseFrontmatter(text);
 
   let updated = entry.updated;
@@ -472,6 +528,17 @@ export class NoteNotFoundError extends Error {
   constructor(wrenId: string) {
     super(`No note with wrenId "${wrenId}" in the catalog.`);
     this.name = 'NoteNotFoundError';
+  }
+}
+
+export class NoteUnreadableError extends Error {
+  constructor(wrenId: string, rel: string, cause?: unknown) {
+    super(
+      `Could not read note "${wrenId}" at "${rel}". If you use Google Drive ` +
+        `for Desktop, the file may be online-only (stream mode) and not yet ` +
+        `hydrated — set the Wren Notes folder to "mirror" mode. (${String(cause)})`
+    );
+    this.name = 'NoteUnreadableError';
   }
 }
 

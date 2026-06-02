@@ -33,6 +33,8 @@ The server needs to know which folder holds your Wren notes. In priority order:
 
 If neither is set the server still starts, and every tool returns a clear *"notes folder is not configured"* error. When installed as a Desktop Extension, the `.mcpb` manifest's **"Wren notes folder"** directory picker supplies `WREN_NOTES_DIR` automatically (see [`docs/INSTALL.md`](docs/INSTALL.md)).
 
+**Using Wren on the Google Drive backend?** If your notes live in Google Drive, point the server at your Drive-synced "Wren Notes" folder (Google Drive for Desktop, mirror mode) — see [`docs/DRIVE.md`](docs/DRIVE.md). Still fully local: the server reads the already-synced local copy.
+
 ## Package as a Claude Desktop extension
 
 ```bash

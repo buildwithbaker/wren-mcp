@@ -17,7 +17,7 @@ This is a **Desktop Extension** (`.mcpb`) — a one-click install, no terminal n
 It's the folder you chose in the Wren app:
 
 - **Local (File System) Wren:** the folder you picked with "Save to my computer" / "Choose folder." If you're unsure of the exact path, the Wren app shows it in its storage settings (the folder chip in the sidebar header).
-- **Google Drive Wren:** the extension reads a **local** folder, so point it at a synced copy of your "Wren Notes" Drive folder (e.g. via Google Drive for desktop). The pure-cloud Drive folder isn't directly readable by this local extension.
+- **Google Drive Wren:** the extension reads a **local** folder, so point it at a synced copy of your "Wren Notes" Drive folder (Google Drive for Desktop, **mirror mode**). The pure-cloud Drive folder isn't directly readable by this local extension. Full setup + path examples: [DRIVE.md](DRIVE.md).
 
 The default suggested path is `~/Documents/Wren Notes` — change it to wherever your notes actually live.
 
