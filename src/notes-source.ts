@@ -160,6 +160,14 @@ export async function loadIndex(notesDir: string): Promise<Catalog> {
   }
   // Normalize so downstream code can rely on arrays/strings being present.
   catalog.notes = catalog.notes.map(normalizeEntry);
+  // Disk is the source of truth for staged notes: replace the index's inbox
+  // entries with a live `_inbox/` scan. This makes a note created via
+  // wren_create_note immediately readable + visible in get_index even before
+  // Wren has regenerated its index. (Same spirit as the per-note staleness
+  // re-read; the main corpus still comes from the index — no full rescan.)
+  const inboxLive = await scanInboxNotes(notesDir);
+  catalog.notes = [...catalog.notes.filter((n) => !n.inbox), ...inboxLive];
+  catalog.notes.sort((a, b) => (a.updated < b.updated ? 1 : a.updated > b.updated ? -1 : 0));
   catalog.count = catalog.notes.length;
   return catalog;
 }
@@ -189,7 +197,6 @@ function normalizeEntry(e: Partial<NoteEntry>): NoteEntry {
  * body to match Wren's FS convention; path/file = the filename.
  */
 export async function scanFolderCatalog(notesDir: string): Promise<Catalog> {
-  const notes: NoteEntry[] = [];
   let dirents: import('node:fs').Dirent[];
   try {
     dirents = await fs.readdir(notesDir, { withFileTypes: true });
@@ -198,37 +205,20 @@ export async function scanFolderCatalog(notesDir: string): Promise<Catalog> {
     return emptyCatalog(true);
   }
 
+  const notes: NoteEntry[] = [];
   for (const dirent of dirents) {
     if (!dirent.isFile()) continue;
     const name = dirent.name;
     if (!name.toLowerCase().endsWith('.md')) continue;
     if (RESERVED_NOTE_NAMES.has(name)) continue;
-    try {
-      const full = path.join(notesDir, name);
-      const text = await fs.readFile(full, 'utf8');
-      const { frontmatter, body } = parseFrontmatter(text);
-      const stat = await fs.stat(full);
-      const mtimeIso = stat.mtime.toISOString();
-      notes.push(
-        normalizeEntry({
-          wrenId: str(frontmatter.id),
-          storageId: name,
-          path: name,
-          file: name,
-          title: str(frontmatter.title),
-          summary: str(frontmatter.summary),
-          due: str(frontmatter.due),
-          tags: Array.isArray(frontmatter.tags) ? (frontmatter.tags as string[]) : [],
-          color: str(frontmatter.color) || 'default',
-          created: str(frontmatter.created) || mtimeIso,
-          updated: str(frontmatter.modified) || mtimeIso,
-          contentHash: sha256Hex(body),
-        })
-      );
-    } catch (err) {
-      log(`Skipping unreadable note ${name}: ${String(err)}`);
-    }
+    const entry = await parseNoteFile(notesDir, name, name, false);
+    if (entry) notes.push(entry);
   }
+
+  // Include live staged notes so a just-created note is visible/readable even
+  // without a .wren-index.json. Inbox notes are still excluded from search/list
+  // downstream (corpus()); they carry inbox:true.
+  notes.push(...(await scanInboxNotes(notesDir)));
 
   notes.sort((a, b) => (a.updated < b.updated ? 1 : a.updated > b.updated ? -1 : 0));
   return {
@@ -239,6 +229,68 @@ export async function scanFolderCatalog(notesDir: string): Promise<Catalog> {
     notes,
     fromFallback: true,
   };
+}
+
+/**
+ * Scan the `_inbox/` subfolder for staged `.md` notes. Returns [] when the
+ * subfolder is absent. Each entry carries inbox:true and path `_inbox/<file>`.
+ */
+export async function scanInboxNotes(notesDir: string): Promise<NoteEntry[]> {
+  const inboxDir = path.join(notesDir, INBOX_DIR);
+  let dirents: import('node:fs').Dirent[];
+  try {
+    dirents = await fs.readdir(inboxDir, { withFileTypes: true });
+  } catch {
+    return []; // no _inbox/ — fine
+  }
+  const notes: NoteEntry[] = [];
+  for (const dirent of dirents) {
+    if (!dirent.isFile()) continue;
+    const name = dirent.name;
+    if (!name.toLowerCase().endsWith('.md')) continue;
+    if (RESERVED_NOTE_NAMES.has(name)) continue;
+    const rel = `${INBOX_DIR}/${name}`;
+    const entry = await parseNoteFile(notesDir, rel, name, true);
+    if (entry) notes.push(entry);
+  }
+  return notes;
+}
+
+/**
+ * Parse one note file at `<notesDir>/<relPath>` into a NoteEntry. `file` is the
+ * bare filename; `inbox` marks staged notes. Returns null if unreadable.
+ */
+async function parseNoteFile(
+  notesDir: string,
+  relPath: string,
+  file: string,
+  inbox: boolean
+): Promise<NoteEntry | null> {
+  try {
+    const full = path.join(notesDir, relPath);
+    const text = await fs.readFile(full, 'utf8');
+    const { frontmatter, body } = parseFrontmatter(text);
+    const stat = await fs.stat(full);
+    const mtimeIso = stat.mtime.toISOString();
+    return normalizeEntry({
+      wrenId: str(frontmatter.id),
+      storageId: relPath,
+      path: relPath,
+      file,
+      title: str(frontmatter.title),
+      summary: str(frontmatter.summary),
+      due: str(frontmatter.due),
+      tags: Array.isArray(frontmatter.tags) ? (frontmatter.tags as string[]) : [],
+      color: str(frontmatter.color) || 'default',
+      created: str(frontmatter.created) || mtimeIso,
+      updated: str(frontmatter.modified) || mtimeIso,
+      contentHash: sha256Hex(body),
+      ...(inbox ? { inbox: true } : {}),
+    });
+  } catch (err) {
+    log(`Skipping unreadable note ${relPath}: ${String(err)}`);
+    return null;
+  }
 }
 
 function emptyCatalog(fromFallback = false): Catalog {

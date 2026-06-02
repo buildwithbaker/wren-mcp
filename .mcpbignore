@@ -1,0 +1,23 @@
+# Exclude everything that isn't needed at runtime from the .mcpb bundle.
+# The server needs: manifest.json, icon.png, dist/, and production node_modules.
+
+# Source + tests (only dist/ is shipped)
+src/
+tests/
+*.ts
+tsconfig.json
+vitest.config.ts
+eslint.config.js
+
+# Dev/repo cruft
+.git/
+.github/
+.claude/
+docs/
+.gitignore
+.mcpbignore
+.env
+.env.example
+*.map
+
+# Build the bundle from a pruned (production-only) node_modules — see npm run pack.

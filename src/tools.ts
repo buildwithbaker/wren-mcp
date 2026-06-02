@@ -1,11 +1,10 @@
 // tools.ts
 //
-// The MCP tool surface — thin wrappers over src/notes-source.ts. Index-then-
-// fetch is the rule: search / list / get_index return METADATA ONLY; the model
-// calls wren_read_note for bodies. Never load bodies in search/list.
-//
-// Read-only in Build Prompt 1. Prompt 2 adds wren_create_note (-> _inbox/);
-// registerTools() is the single extension point where it slots in.
+// The MCP tool surface — thin wrappers over src/notes-source.ts (reads) and
+// src/note-writer.ts (the one write). Index-then-fetch is the rule: search /
+// list / get_index return METADATA ONLY; the model calls wren_read_note for
+// bodies. The only write is wren_create_note, which stages into _inbox/ — it
+// never touches the main corpus.
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -19,6 +18,7 @@ import {
   NoteNotFoundError,
   MAX_LIMIT,
 } from './notes-source.js';
+import { createInboxNote } from './note-writer.js';
 import { logError } from './log.js';
 
 /** Shared context handed to every tool handler. */
@@ -191,5 +191,38 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
     }
   );
 
-  // Build Prompt 2: register wren_create_note here (writes into _inbox/).
+  // ---- wren_create_note (writes to _inbox/ staging only) -----------------
+  server.registerTool(
+    'wren_create_note',
+    {
+      title: 'Create a Wren note (staged for review)',
+      description:
+        'Capture a new note. It is written to the _inbox/ staging folder, NOT the main ' +
+        'notes — the user reviews and promotes it in the Wren app. Writes never touch, ' +
+        'overwrite, or delete existing notes. Returns the new wrenId and _inbox/ path.',
+      inputSchema: {
+        title: z.string().min(1).describe('Note title (also used to derive the filename).'),
+        body: z.string().describe('Markdown body of the note.'),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe('Optional namespaced tags, e.g. ["status:todo", "project:wren"].'),
+        due: z.string().optional().describe('Optional ISO date/timestamp due value.'),
+      },
+    },
+    async (args) => {
+      try {
+        if (!ctx.notesDir) return fail(NOTES_DIR_NOT_CONFIGURED);
+        const result = await createInboxNote(ctx.notesDir, {
+          title: args.title,
+          body: args.body,
+          tags: args.tags,
+          due: args.due,
+        });
+        return ok(result);
+      } catch (err) {
+        return toFailure('wren_create_note', err);
+      }
+    }
+  );
 }

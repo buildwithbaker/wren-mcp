@@ -23,7 +23,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "inspect": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js"
+    "inspect": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
+    "pack": "npm run build && npm prune --omit=dev && npx @anthropic-ai/mcpb pack . Wren.mcpb && npm install"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

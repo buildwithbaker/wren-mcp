@@ -100,7 +100,7 @@ describe('loadIndex', () => {
       noteFile({ id: 'wren-bbbbbbbbbbbb', title: 'Scanned', modified: '2026-02-01T00:00:00.000Z' }, 'body'),
       'utf8'
     );
-    // Reserved + inbox files must be excluded from the scan.
+    // Reserved files are excluded; the _inbox/ note is INCLUDED but flagged.
     await fs.writeFile(path.join(dir, '_index.md'), '# managed', 'utf8');
     await fs.writeFile(path.join(dir, 'README-for-AI.md'), '# contract', 'utf8');
     await fs.mkdir(path.join(dir, '_inbox'));
@@ -108,8 +108,17 @@ describe('loadIndex', () => {
 
     const loaded = await loadIndex(dir);
     expect(loaded.fromFallback).toBe(true);
-    expect(loaded.notes.map((n) => n.title)).toEqual(['Scanned']);
-    expect(loaded.notes[0].contentHash).toMatch(/^sha256-[0-9a-f]{64}$/);
+    // Main-corpus note present and not flagged.
+    const scanned = loaded.notes.find((n) => n.title === 'Scanned');
+    expect(scanned).toBeTruthy();
+    expect(scanned?.inbox).toBeUndefined();
+    expect(scanned?.contentHash).toMatch(/^sha256-[0-9a-f]{64}$/);
+    // Reserved files excluded.
+    expect(loaded.notes.some((n) => n.title === 'managed' || n.title === 'contract')).toBe(false);
+    // Staged note is in the catalog with inbox:true and an _inbox/ path.
+    const staged = loaded.notes.find((n) => n.wrenId === 'wren-cccccccccccc');
+    expect(staged?.inbox).toBe(true);
+    expect(staged?.path).toBe('_inbox/staged.md');
   });
 
   it('falls back when the index is malformed JSON', async () => {

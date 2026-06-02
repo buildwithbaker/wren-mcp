@@ -64,5 +64,24 @@ console.log('LIST page2 ->', page2.items.map((n) => n.wrenId), '| nextCursor:', 
 const idx = parse(await client.callTool({ name: 'wren_get_index', arguments: {} }));
 console.log('GET_INDEX -> count:', idx.count, '| summarized:', !!idx.summarized, '| fromFallback:', !!idx.fromFallback);
 
+// ---- wren_create_note (Prompt 2) --------------------------------------------
+const created = parse(
+  await client.callTool({
+    name: 'wren_create_note',
+    arguments: { title: 'From Claude', body: 'captured via MCP', tags: ['status:todo'], due: '2026-07-01' },
+  })
+);
+console.log('CREATE -> wrenId:', created.wrenId, '| path:', created.path);
+
+// Read it straight back by the returned wrenId (read works on staged notes when
+// the catalog knows them — here the fresh disk file is found via a re-read).
+const readNew = await client.callTool({ name: 'wren_read_note', arguments: { wrenId: created.wrenId } });
+if (readNew.isError) {
+  console.log('READ created -> isError (catalog has no inbox entry yet):', readNew.content[0].text.slice(0, 50));
+} else {
+  const rn = parse(readNew);
+  console.log('READ created -> title:', rn.title, '| bodyOk:', rn.body.includes('captured via MCP'));
+}
+
 await client.close();
 console.log('OK');

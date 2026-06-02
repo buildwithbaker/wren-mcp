@@ -3,6 +3,9 @@ node_modules/
 dist/
 *.local
 
+# packaged Desktop Extension artifact (built via `npm run pack`)
+*.mcpb
+
 # env (commit the example only)
 .env
 .env.*

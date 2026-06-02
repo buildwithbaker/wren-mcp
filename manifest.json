@@ -1,0 +1,48 @@
+{
+  "manifest_version": "0.2",
+  "name": "wren-mcp",
+  "display_name": "Wren",
+  "version": "0.1.0",
+  "description": "Read your local Wren notes in Claude — and capture new ones to your Wren inbox for review.",
+  "long_description": "Lets Claude Desktop read the notes in your local Wren notes folder (search, list, read, and browse the catalog) and create new notes. Created notes are staged in your Wren _inbox/ for you to review and keep in the Wren app — they are not added to your notes automatically. Your notes never leave your computer: this is a local server that only reads the folder you choose. Claude Desktop only.",
+  "author": {
+    "name": "Adam Baker / Build with Baker"
+  },
+  "homepage": "https://github.com/buildwithbaker/wren-mcp",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "WREN_NOTES_DIR": "${user_config.notes_dir}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "wren_search_notes", "description": "Search notes by text, tag, or due date (metadata only)." },
+    { "name": "wren_read_note", "description": "Read one note in full by its wrenId." },
+    { "name": "wren_list_notes", "description": "List note metadata, paginated." },
+    { "name": "wren_get_index", "description": "Get the whole notes catalog." },
+    { "name": "wren_create_note", "description": "Create a note, staged in the Wren inbox for review." }
+  ],
+  "user_config": {
+    "notes_dir": {
+      "type": "directory",
+      "title": "Wren notes folder",
+      "description": "The folder where your Wren notes live (the folder you chose in the Wren app). Your notes never leave your computer.",
+      "required": true,
+      "default": "${HOME}/Documents/Wren Notes"
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  },
+  "license": "MIT"
+}
