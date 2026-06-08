@@ -1,0 +1,11 @@
+# CodeRabbit config - wren-mcp
+# Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+reviews:
+  profile: chill              # switch to "assertive" for pickier reviews
+  high_level_summary: true
+  poem: false
+  path_filters:
+    - "!dist/**"              # generated output - never review
+
+chat:
+  auto_reply: true
