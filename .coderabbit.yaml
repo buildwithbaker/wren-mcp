@@ -1,0 +1,31 @@
+# CodeRabbit config - wren-mcp (TypeScript MCP server)
+# Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+language: en-US
+reviews:
+  profile: assertive          # was "chill"
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!dist/**"              # generated output - never review
+    - "!node_modules/**"
+    - "!*.mcpb"               # packaged bundle artifact
+  path_instructions:
+    - path: "src/**"
+      instructions: >-
+        Focus on MCP protocol correctness, tool-handler input validation,
+        error handling (tools should return structured errors, not throw
+        unhandled), async/await correctness, and TypeScript type safety. Flag
+        any `any` types that hide real shapes.
+    - path: "tests/**"
+      instructions: >-
+        Flag missing assertions, skipped/only tests left in, and handlers that
+        have no test coverage.
+    - path: "**/*"
+      instructions: >-
+        Flag any committed secret, API key, token, or credential in plain text.
+chat:
+  auto_reply: true
