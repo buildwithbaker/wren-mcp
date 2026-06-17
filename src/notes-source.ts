@@ -69,6 +69,11 @@ export interface ReadNoteResult {
   frontmatter: Record<string, unknown>;
   body: string;
   updated: string;
+  /**
+   * `sha256-<hex>` of the body just read. The token a v2 write tool must pass
+   * back as `expected_content_hash` to pass the optimistic-concurrency gate.
+   */
+  contentHash: string;
   /** True when the on-disk file was newer than the index and we re-read it. */
   stale: boolean;
 }
@@ -120,6 +125,31 @@ function parseTagsValue(raw: string): string[] {
 
 function sha256Hex(text: string): string {
   return 'sha256-' + createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+/**
+ * Canonicalize a parsed note body. The frontmatter block is followed by a
+ * blank-line separator that the serializer always emits (`---\n\n<body>`), so
+ * parseFrontmatter's body carries one leading newline. Strip exactly that one
+ * separator newline so serialize→parse round-trips cleanly (no accumulating
+ * blank lines on repeated writes) and the body hash is computed over the same
+ * canonical text on both read and write.
+ */
+export function canonicalBody(rawBody: string): string {
+  return rawBody.replace(/^\r?\n/, '');
+}
+
+/**
+ * The change-detection token for a note body: `sha256-<hex>` of the body text.
+ * This is exactly Wren's FS `contentHash` convention (see the PWA's
+ * src/ai/note-index.js contentHashOf), so the value round-trips with
+ * `.wren-index.json` for FS-backed notes. The v2 write tools use this for the
+ * optimistic-concurrency gate — computed live on read AND on write, never read
+ * from the (possibly stale) index — so it is correct even on the Drive backend
+ * (where the index stores an md5 token instead).
+ */
+export function bodyContentHash(body: string): string {
+  return sha256Hex(body ?? '');
 }
 
 // --- Catalog loading ---------------------------------------------------------
@@ -496,7 +526,8 @@ export async function readNoteByWrenId(
     // into a clean tool error, never a crash).
     throw new NoteUnreadableError(wrenId, rel, err);
   }
-  const { frontmatter, body } = parseFrontmatter(text);
+  const { frontmatter, body: rawBody } = parseFrontmatter(text);
+  const body = canonicalBody(rawBody);
 
   let updated = entry.updated;
   let stale = false;
@@ -520,6 +551,7 @@ export async function readNoteByWrenId(
     frontmatter,
     body,
     updated,
+    contentHash: bodyContentHash(body),
     stale,
   };
 }

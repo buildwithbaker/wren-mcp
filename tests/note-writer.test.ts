@@ -10,7 +10,10 @@ import {
   buildNoteFilename,
   uniqueNoteName,
   serializeStagedNote,
+  serializeNoteFile,
+  isValidNamespacedTag,
   createInboxNote,
+  createNote,
 } from '../src/note-writer.js';
 import { loadIndex, readNoteByWrenId, parseFrontmatter } from '../src/notes-source.js';
 
@@ -99,6 +102,63 @@ describe('serializeStagedNote', () => {
     expect(frontmatter.due).toBe('2026-06-10');
     expect(frontmatter.tags).toEqual(['a:b']);
     expect(body.trim()).toBe('body text');
+  });
+});
+
+describe('serializeNoteFile (full serializer, v2)', () => {
+  const base = {
+    wrenId: 'wren-aaaaaaaaaaaa',
+    title: 'Hi',
+    createdIso: '2026-06-01T10:00:00.000Z',
+    modifiedIso: '2026-06-02T10:00:00.000Z',
+    body: 'b',
+  };
+  it('preserves color and summary (unlike the create-only serializer)', () => {
+    const text = serializeNoteFile({ ...base, color: 'amber', summary: 'sum', tags: ['a:b'] });
+    expect(text).toContain('color: amber');
+    expect(text).toContain('summary: "sum"');
+    expect(text).toContain('tags: ["a:b"]');
+  });
+  it('emits Wren field order: id, title, created, modified, color, [due], [summary], [tags]', () => {
+    const text = serializeNoteFile({ ...base, color: 'red', due: '2026-07-01', summary: 's', tags: ['x:y'] });
+    const keys = text.split('\n').filter((l) => /^[a-z]+:/.test(l)).map((l) => l.slice(0, l.indexOf(':')));
+    expect(keys).toEqual(['id', 'title', 'created', 'modified', 'color', 'due', 'summary', 'tags']);
+  });
+  it('defaults a missing color to default and omits unset optionals', () => {
+    const text = serializeNoteFile(base);
+    expect(text).toContain('color: default');
+    expect(text).not.toMatch(/\ndue:/);
+    expect(text).not.toMatch(/\nsummary:/);
+    expect(text).not.toMatch(/\ntags:/);
+  });
+});
+
+describe('isValidNamespacedTag', () => {
+  it('accepts namespace:value', () => {
+    expect(isValidNamespacedTag('status:todo')).toBe(true);
+    expect(isValidNamespacedTag('link:https://x.com')).toBe(true);
+  });
+  it('rejects bare tags, empty namespace/value, whitespace, quotes, newlines', () => {
+    expect(isValidNamespacedTag('important')).toBe(false); // no namespace
+    expect(isValidNamespacedTag(':value')).toBe(false); // empty namespace
+    expect(isValidNamespacedTag('ns:')).toBe(false); // empty value
+    expect(isValidNamespacedTag(' ns:v')).toBe(false); // not trimmed
+    expect(isValidNamespacedTag('ns:"v"')).toBe(false); // double-quote
+    expect(isValidNamespacedTag('ns:a\nb')).toBe(false); // newline
+  });
+});
+
+describe('createNote target', () => {
+  it('writes to the corpus root when target=corpus (no _inbox/)', async () => {
+    const res = await createNote(dir, { title: 'Direct', body: 'b', target: 'corpus' }, '2026-06-01T10:00:00.000Z');
+    expect(res.target).toBe('corpus');
+    expect(res.path).toBe('2026-06-01 - Direct.md');
+    await expect(fs.access(path.join(dir, res.path))).resolves.toBeUndefined();
+  });
+  it('defaults to inbox and never overwrites a corpus file', async () => {
+    const res = await createNote(dir, { title: 'Stage', body: 'b' }, '2026-06-01T10:00:00.000Z');
+    expect(res.target).toBe('inbox');
+    expect(res.path).toBe('_inbox/2026-06-01 - Stage.md');
   });
 });
 
