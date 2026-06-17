@@ -2,9 +2,9 @@
   "manifest_version": "0.2",
   "name": "wren-mcp",
   "display_name": "Wren",
-  "version": "0.1.0",
-  "description": "Read your local Wren notes in Claude — and capture new ones to your Wren inbox for review.",
-  "long_description": "Lets Claude Desktop read the notes in your local Wren notes folder (search, list, read, and browse the catalog) and create new notes. Created notes are staged in your Wren _inbox/ for you to review and keep in the Wren app — they are not added to your notes automatically. Your notes never leave your computer: this is a local server that only reads the folder you choose. Claude Desktop only.",
+  "version": "0.2.0",
+  "description": "Read and write your local Wren notes in Claude — search, read, create, update, tag, and tidy.",
+  "long_description": "Lets Claude Desktop read the notes in your local Wren notes folder (search, list, read, browse the catalog) and write them too: create notes (staged in your Wren _inbox/ for review, or written straight to your notes), update bodies and titles, append text, add or remove tags, soft-delete (moved to a recoverable .trash/ folder, never erased), and promote staged notes. AI-written or AI-edited notes are stamped in their frontmatter (created_by / last_edited_by) so you can tell them apart, and staged drafts are listable for review. Writes are guarded: Claude must read a note first and edits are rejected if the note changed underneath it, so nothing is silently overwritten. Your notes never leave your computer: this is a local server that only touches the folder you choose. Claude Desktop only.",
   "author": {
     "name": "Adam Baker / Build with Baker"
   },
@@ -23,10 +23,15 @@
   },
   "tools": [
     { "name": "wren_search_notes", "description": "Search notes by text, tag, or due date (metadata only)." },
-    { "name": "wren_read_note", "description": "Read one note in full by its wrenId." },
+    { "name": "wren_read_note", "description": "Read one note in full by its wrenId (returns a contentHash for safe writes)." },
     { "name": "wren_list_notes", "description": "List note metadata, paginated." },
     { "name": "wren_get_index", "description": "Get the whole notes catalog." },
-    { "name": "wren_create_note", "description": "Create a note, staged in the Wren inbox for review." }
+    { "name": "wren_create_note", "description": "Create a note, staged in the inbox (default) or written to the live notes." },
+    { "name": "wren_update_note", "description": "Update a note's body/title/due, with a read-first conflict check." },
+    { "name": "wren_append_to_note", "description": "Append text to a note's body, with a read-first conflict check." },
+    { "name": "wren_set_tags", "description": "Add/remove namespaced tags on a note, with a read-first conflict check." },
+    { "name": "wren_delete_note", "description": "Soft-delete a note to .trash/ (requires confirm:true)." },
+    { "name": "wren_move_to_corpus", "description": "Promote a staged inbox note into the live notes (requires confirm:true)." }
   ],
   "user_config": {
     "notes_dir": {

@@ -14,7 +14,7 @@ import { log, logError } from './log.js';
 
 // Read from package.json would require JSON import assertions; hardcode to keep
 // the bundle simple. Bump alongside package.json.
-const SERVER_VERSION = '0.1.0';
+const SERVER_VERSION = '0.2.0';
 
 async function main(): Promise<void> {
   const { notesDir } = resolveConfig();
