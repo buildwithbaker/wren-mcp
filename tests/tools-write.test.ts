@@ -123,15 +123,38 @@ describe('wren_delete_note (tool layer)', () => {
 });
 
 describe('wren_move_to_corpus (tool layer)', () => {
-  it('promotes a staged note', async () => {
+  it('refuses without confirm:true', async () => {
     const created = await tools.wren_create_note({ title: 'Stage', body: 'b', target: 'inbox' });
     const wrenId = (created.structuredContent as { wrenId: string }).wrenId;
     const res = await tools.wren_move_to_corpus({ wrenId });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('confirm:true');
+  });
+  it('promotes a staged note with confirm:true', async () => {
+    const created = await tools.wren_create_note({ title: 'Stage', body: 'b', target: 'inbox' });
+    const wrenId = (created.structuredContent as { wrenId: string }).wrenId;
+    const res = await tools.wren_move_to_corpus({ wrenId, confirm: true });
     expect((res.structuredContent as { target: string }).target).toBe('corpus');
   });
   it('errors on a non-inbox note', async () => {
     const { wrenId } = await createAndRead('corpus');
-    const res = await tools.wren_move_to_corpus({ wrenId });
+    const res = await tools.wren_move_to_corpus({ wrenId, confirm: true });
     expect(res.isError).toBe(true);
+  });
+});
+
+describe('confirm-scoping (v2.1: gate delete + move only)', () => {
+  it('update/append/set_tags do NOT require confirm — hash + dry_run suffice', async () => {
+    const { wrenId, contentHash } = await createAndRead('corpus');
+    const upd = await tools.wren_update_note({ wrenId, body: 'b2', expected_content_hash: contentHash });
+    expect(upd.isError).toBeFalsy();
+    const read = await tools.wren_read_note({ wrenId });
+    const h2 = (read.structuredContent as { contentHash: string }).contentHash;
+    const app = await tools.wren_append_to_note({ wrenId, text: 'more', expected_content_hash: h2 });
+    expect(app.isError).toBeFalsy();
+    const read2 = await tools.wren_read_note({ wrenId });
+    const h3 = (read2.structuredContent as { contentHash: string }).contentHash;
+    const tag = await tools.wren_set_tags({ wrenId, add: ['status:todo'], expected_content_hash: h3 });
+    expect(tag.isError).toBeFalsy();
   });
 });

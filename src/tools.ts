@@ -95,7 +95,9 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
       description:
         'Search the notes catalog by title/summary text, tag, and/or due date. ' +
         'Returns metadata only (no note bodies) — call wren_read_note for a body. ' +
-        'Staged _inbox/ notes are excluded. Use this to find notes before reading them.',
+        'By default only live (corpus) notes are searched; pass location "inbox" to ' +
+        'find staged AI-created drafts (each hit is flagged inbox:true) or "all" for ' +
+        'both. Use this to find notes before reading them.',
       inputSchema: {
         query: z.string().optional().describe('Case-insensitive substring matched against title + summary.'),
         tag: z.string().optional().describe('Exact tag match, e.g. "status:todo" or "project:wren".'),
@@ -103,6 +105,10 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
           .string()
           .optional()
           .describe('ISO date/timestamp; keep notes whose `due` is on or before this.'),
+        location: z
+          .enum(['corpus', 'inbox', 'all'])
+          .optional()
+          .describe('Which notes to search: "corpus" (default, live notes), "inbox" (staged), or "all".'),
         limit: z
           .number()
           .int()
@@ -118,6 +124,7 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
           query: args.query,
           tag: args.tag,
           dueBefore: args.due_before,
+          location: args.location,
           limit: args.limit,
         });
         return ok({ count: hits.length, notes: hits });
@@ -162,9 +169,15 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
       title: 'List Wren notes',
       description:
         'List note metadata (newest first), paginated. Returns metadata only (no bodies). ' +
-        'Pass the returned nextCursor to fetch the next page. Staged _inbox/ notes are excluded.',
+        'Pass the returned nextCursor to fetch the next page. By default only live (corpus) ' +
+        'notes are listed; pass location "inbox" to list staged AI-created drafts for triage ' +
+        '(flagged inbox:true) or "all" for both.',
       inputSchema: {
         tag: z.string().optional().describe('Optional exact tag filter.'),
+        location: z
+          .enum(['corpus', 'inbox', 'all'])
+          .optional()
+          .describe('Which notes to list: "corpus" (default, live notes), "inbox" (staged), or "all".'),
         limit: z
           .number()
           .int()
@@ -179,6 +192,7 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
         const catalog = await requireCatalog(ctx);
         const result = listNotes(catalog, {
           tag: args.tag,
+          location: args.location,
           limit: args.limit,
           cursor: args.cursor,
         });
@@ -419,16 +433,24 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
       description:
         'Promote a staged _inbox/ note into the live notes (the human-approval path ' +
         'for AI-created notes). The file is moved to the notes root under a ' +
-        'collision-free name; its content and id are unchanged. Errors if the note is ' +
-        'not a staged _inbox/ note.',
+        'collision-free name; its content and id are unchanged. Requires confirm:true ' +
+        '(it commits a draft to the live corpus). Errors if the note is not a staged ' +
+        '_inbox/ note.',
       inputSchema: {
         wrenId: z.string().min(1).describe('Stable note id of the staged _inbox/ note to promote.'),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe('Must be exactly true to confirm promoting this draft into the live notes.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (args) => {
       try {
         if (!ctx.notesDir) return fail(NOTES_DIR_NOT_CONFIGURED);
+        if (args.confirm !== true) {
+          return fail('Refusing to promote: pass confirm:true to move this staged note into the live notes.');
+        }
         const catalog = await loadIndex(ctx.notesDir);
         const result = await moveToCorpus(ctx.notesDir, catalog, args.wrenId);
         return ok(result);

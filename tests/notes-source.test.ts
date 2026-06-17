@@ -158,6 +158,20 @@ describe('searchNotes', () => {
   it('excludes inbox notes by default', () => {
     expect(searchNotes(cat, {}).some((h) => h.wrenId === 'wren-3')).toBe(false);
   });
+  it('location "inbox" returns ONLY staged notes, flagged inbox:true', () => {
+    const hits = searchNotes(cat, { location: 'inbox' });
+    expect(hits.map((h) => h.wrenId)).toEqual(['wren-3']);
+    expect(hits[0].inbox).toBe(true);
+  });
+  it('location "all" includes both corpus and inbox notes', () => {
+    const ids = searchNotes(cat, { location: 'all' }).map((h) => h.wrenId);
+    expect(ids).toContain('wren-3');
+    expect(ids).toContain('wren-1');
+  });
+  it('corpus hits carry no inbox flag', () => {
+    const hit = searchNotes(cat, { query: 'grocery' })[0];
+    expect(hit.inbox).toBeUndefined();
+  });
   it('returns metadata only (no body field)', () => {
     const hit = searchNotes(cat, { query: 'grocery' })[0] as Record<string, unknown>;
     expect('body' in hit).toBe(false);
@@ -189,6 +203,24 @@ describe('listNotes pagination', () => {
   it('ignores a malformed cursor (starts from 0)', () => {
     const p = listNotes(cat, { limit: 2, cursor: 'not-base64!!' });
     expect(p.items[0].wrenId).toBe('wren-0');
+  });
+});
+
+describe('listNotes location filter (inbox triage)', () => {
+  const cat = catalogOf([
+    entry({ wrenId: 'wren-corpus1', title: 'Live', updated: '2026-03-01T00:00:00Z' }),
+    entry({ wrenId: 'wren-staged1', title: 'Draft', inbox: true, updated: '2026-03-02T00:00:00Z' }),
+  ]);
+  it('defaults to corpus only', () => {
+    expect(listNotes(cat, {}).items.map((i) => i.wrenId)).toEqual(['wren-corpus1']);
+  });
+  it('location "inbox" lists only staged notes for triage', () => {
+    const items = listNotes(cat, { location: 'inbox' }).items;
+    expect(items.map((i) => i.wrenId)).toEqual(['wren-staged1']);
+    expect(items[0].inbox).toBe(true);
+  });
+  it('location "all" lists both', () => {
+    expect(listNotes(cat, { location: 'all' }).items).toHaveLength(2);
   });
 });
 

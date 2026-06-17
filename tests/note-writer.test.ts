@@ -130,6 +130,16 @@ describe('serializeNoteFile (full serializer, v2)', () => {
     expect(text).not.toMatch(/\ndue:/);
     expect(text).not.toMatch(/\nsummary:/);
     expect(text).not.toMatch(/\ntags:/);
+    // No provenance emitted when none is supplied (keeps old behavior/tests).
+    expect(text).not.toMatch(/\ncreated_by:/);
+  });
+  it('emits provenance lines (unquoted, ISO last_edited) when provided', () => {
+    const text = serializeNoteFile({ ...base, createdBy: 'ai', lastEditedBy: 'ai', lastEdited: '2026-06-02T10:00:00.000Z' });
+    expect(text).toContain('created_by: ai');
+    expect(text).toContain('last_edited_by: ai');
+    expect(text).toContain('last_edited: 2026-06-02T10:00:00.000Z');
+    // last_edited round-trips despite the colons in the timestamp.
+    expect(parseFrontmatter(text).frontmatter.last_edited).toBe('2026-06-02T10:00:00.000Z');
   });
 });
 
@@ -159,6 +169,13 @@ describe('createNote target', () => {
     const res = await createNote(dir, { title: 'Stage', body: 'b' }, '2026-06-01T10:00:00.000Z');
     expect(res.target).toBe('inbox');
     expect(res.path).toBe('_inbox/2026-06-01 - Stage.md');
+  });
+  it('stamps ai provenance on create (created_by, last_edited_by, last_edited)', async () => {
+    const res = await createNote(dir, { title: 'P', body: 'b', target: 'corpus' }, '2026-06-01T10:00:00.000Z');
+    const { frontmatter } = parseFrontmatter(await fs.readFile(path.join(dir, res.path), 'utf8'));
+    expect(frontmatter.created_by).toBe('ai');
+    expect(frontmatter.last_edited_by).toBe('ai');
+    expect(frontmatter.last_edited).toBe('2026-06-01T10:00:00.000Z');
   });
 });
 

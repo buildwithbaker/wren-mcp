@@ -41,6 +41,8 @@ import {
   buildNoteFilename,
   uniqueNoteName,
   INBOX_PREFIX,
+  PROVENANCE_KEYS,
+  type Actor,
 } from './note-writer.js';
 
 /** Top-level subfolder where soft-deleted notes are parked (MCP-only). */
@@ -103,12 +105,23 @@ interface LoadedNote {
   summary: string;
   tags: string[];
   body: string;
+  /** Existing provenance: who created the note ('' when the note predates it). */
+  createdBy: string;
   /** sha256-<hex> of the body as just read — the live contentHash. */
   contentHash: string;
 }
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+/**
+ * The created_by actor to persist on a MODIFY. Preserve an existing created_by
+ * (never clobber it — v2.1); when absent, the note was authored in Wren by a
+ * human, so default to 'human'.
+ */
+function preservedCreatedBy(existing: string): Actor {
+  return existing === 'ai' ? 'ai' : 'human';
 }
 
 /**
@@ -151,6 +164,7 @@ export async function loadNote(notesDir: string, catalog: Catalog, wrenId: strin
     summary: str(frontmatter.summary) || entry.summary,
     tags: Array.isArray(frontmatter.tags) ? (frontmatter.tags as string[]) : entry.tags,
     body,
+    createdBy: str(frontmatter[PROVENANCE_KEYS.createdBy]),
     contentHash: bodyContentHash(body),
   };
 }
@@ -287,6 +301,9 @@ export async function updateNote(
     due: next.due,
     summary: next.summary,
     tags: next.tags,
+    createdBy: preservedCreatedBy(note.createdBy),
+    lastEditedBy: 'ai',
+    lastEdited: now,
   });
   await atomicWrite(note.full, text);
   return modifyResult(note, next.body, note.rel, now);
@@ -335,6 +352,9 @@ export async function appendToNote(
     due: note.due,
     summary: note.summary,
     tags: note.tags,
+    createdBy: preservedCreatedBy(note.createdBy),
+    lastEditedBy: 'ai',
+    lastEdited: now,
   });
   await atomicWrite(note.full, text);
   return modifyResult(note, newBody, note.rel, now);
@@ -401,6 +421,9 @@ export async function setTags(
     due: note.due,
     summary: note.summary,
     tags: newTags,
+    createdBy: preservedCreatedBy(note.createdBy),
+    lastEditedBy: 'ai',
+    lastEdited: now,
   });
   await atomicWrite(note.full, text);
   return { ...modifyResult(note, note.body, note.rel, now), tags: newTags };

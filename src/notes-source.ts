@@ -399,6 +399,8 @@ export interface SearchHit {
   summary: string;
   due: string;
   updated: string;
+  /** Present and true only for staged _inbox/ notes. */
+  inbox?: boolean;
 }
 
 function clampLimit(limit: number | undefined): number {
@@ -406,9 +408,21 @@ function clampLimit(limit: number | undefined): number {
   return Math.min(Math.floor(limit), MAX_LIMIT);
 }
 
-// Corpus = non-inbox notes. Staged (_inbox/) notes are pending review and are
-// excluded from search/list by default; they remain readable by wrenId.
-function corpus(catalog: Catalog): NoteEntry[] {
+// Which notes a read tool ranges over. 'corpus' (default) = the live notes,
+// excluding staged _inbox/ notes (the v1 behavior); 'inbox' = only staged notes
+// (for a triage UI to find AI-created drafts); 'all' = both.
+export type NoteLocation = 'corpus' | 'inbox' | 'all';
+
+export const DEFAULT_LOCATION: NoteLocation = 'corpus';
+
+/**
+ * Select the note set for a read tool by location. Staged (_inbox/) notes are
+ * pending review and excluded by default; pass 'inbox' or 'all' to surface them.
+ * Unknown values fall back to 'corpus'. All notes remain readable by wrenId.
+ */
+function notesByLocation(catalog: Catalog, location: NoteLocation = DEFAULT_LOCATION): NoteEntry[] {
+  if (location === 'inbox') return catalog.notes.filter((n) => n.inbox);
+  if (location === 'all') return catalog.notes;
   return catalog.notes.filter((n) => !n.inbox);
 }
 
@@ -417,6 +431,7 @@ export interface SearchParams {
   tag?: string;
   dueBefore?: string;
   limit?: number;
+  location?: NoteLocation;
 }
 
 export function searchNotes(catalog: Catalog, params: SearchParams): SearchHit[] {
@@ -424,7 +439,7 @@ export function searchNotes(catalog: Catalog, params: SearchParams): SearchHit[]
   const limit = clampLimit(params.limit);
   const q = query?.trim().toLowerCase();
 
-  let hits = corpus(catalog);
+  let hits = notesByLocation(catalog, params.location);
   if (q) {
     hits = hits.filter(
       (n) =>
@@ -449,6 +464,9 @@ function toSearchHit(n: NoteEntry): SearchHit {
     summary: n.summary,
     due: n.due,
     updated: n.updated,
+    // Surfaced only for staged notes so a triage UI can tell them apart when
+    // listing with location 'inbox' or 'all'.
+    ...(n.inbox ? { inbox: true } : {}),
   };
 }
 
@@ -456,6 +474,7 @@ export interface ListParams {
   tag?: string;
   limit?: number;
   cursor?: string;
+  location?: NoteLocation;
 }
 
 export interface ListResult {
@@ -469,7 +488,7 @@ export interface ListResult {
  */
 export function listNotes(catalog: Catalog, params: ListParams): ListResult {
   const limit = clampLimit(params.limit);
-  let items = corpus(catalog);
+  let items = notesByLocation(catalog, params.location);
   if (params.tag) {
     items = items.filter((n) => Array.isArray(n.tags) && n.tags.includes(params.tag as string));
   }

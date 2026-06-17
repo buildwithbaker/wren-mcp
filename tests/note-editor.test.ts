@@ -295,6 +295,46 @@ describe('moveToCorpus', () => {
   });
 });
 
+describe('provenance (v2.1)', () => {
+  it('update on a human-authored note stamps created_by=human, last_edited_by=ai, last_edited', async () => {
+    await seed({ wrenId: 'wren-prov00000001', body: 'b' }); // seeded with no provenance = human note
+    const catalog = await loadIndex(dir);
+    await updateNote(dir, catalog, { wrenId: 'wren-prov00000001', body: 'b2', expectedContentHash: bodyContentHash('b') }, NOW);
+    const { frontmatter } = parseFrontmatter(await fs.readFile(path.join(dir, await firstMd(dir)), 'utf8'));
+    expect(frontmatter.created_by).toBe('human'); // absent before → defaults to human
+    expect(frontmatter.last_edited_by).toBe('ai');
+    expect(frontmatter.last_edited).toBe(NOW);
+  });
+
+  it('never clobbers an existing created_by=ai on update', async () => {
+    const created = await createNote(dir, { title: 'AI note', body: 'v1', target: 'corpus' }, '2026-06-01T00:00:00.000Z');
+    const catalog = await loadIndex(dir);
+    const read = await readNoteByWrenId(dir, catalog, created.wrenId);
+    expect((read.frontmatter as Record<string, unknown>).created_by).toBe('ai'); // stamped at create
+    await updateNote(dir, catalog, { wrenId: created.wrenId, body: 'v2', expectedContentHash: read.contentHash }, NOW);
+    const { frontmatter } = parseFrontmatter(await fs.readFile(path.join(dir, created.path), 'utf8'));
+    expect(frontmatter.created_by).toBe('ai'); // preserved, not clobbered
+    expect(frontmatter.last_edited_by).toBe('ai');
+    expect(frontmatter.last_edited).toBe(NOW);
+  });
+
+  it('append and set_tags also stamp ai last_edited provenance', async () => {
+    await seed({ wrenId: 'wren-prov00000002', body: 'b' });
+    let catalog = await loadIndex(dir);
+    await appendToNote(dir, catalog, { wrenId: 'wren-prov00000002', text: 'more', expectedContentHash: bodyContentHash('b') }, NOW);
+    let fm = parseFrontmatter(await fs.readFile(path.join(dir, await firstMd(dir)), 'utf8')).frontmatter;
+    expect(fm.last_edited_by).toBe('ai');
+    expect(fm.created_by).toBe('human');
+
+    catalog = await loadIndex(dir);
+    const read = await readNoteByWrenId(dir, catalog, 'wren-prov00000002');
+    await setTags(dir, catalog, { wrenId: 'wren-prov00000002', add: ['status:todo'], expectedContentHash: read.contentHash }, NOW);
+    fm = parseFrontmatter(await fs.readFile(path.join(dir, await firstMd(dir)), 'utf8')).frontmatter;
+    expect(fm.last_edited_by).toBe('ai');
+    expect(fm.last_edited).toBe(NOW);
+  });
+});
+
 describe('safety', () => {
   it('loadNote rejects a path-traversal entry', async () => {
     const evil: Catalog = {

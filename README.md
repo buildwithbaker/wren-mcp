@@ -14,9 +14,9 @@ Reads follow **index-then-fetch**: search / list / get_index return **metadata o
 
 | Tool | Input | Output |
 |---|---|---|
-| `wren_search_notes` | `{ query?, tag?, due_before?, limit? }` | `{ count, notes: [{ wrenId, title, tags, summary, due, updated }] }` |
+| `wren_search_notes` | `{ query?, tag?, due_before?, location?, limit? }` | `{ count, notes: [{ wrenId, title, tags, summary, due, updated, inbox? }] }` |
 | `wren_read_note` | `{ wrenId }` | `{ wrenId, title, frontmatter, body, updated, contentHash, stale }` |
-| `wren_list_notes` | `{ tag?, limit?, cursor? }` | `{ items: [...metadata], nextCursor? }` |
+| `wren_list_notes` | `{ tag?, location?, limit?, cursor? }` | `{ items: [...metadata], nextCursor? }` |
 | `wren_get_index` | `{}` | the catalog (summarized when large) |
 
 ### Writes
@@ -28,11 +28,11 @@ Reads follow **index-then-fetch**: search / list / get_index return **metadata o
 | `wren_append_to_note` | `{ wrenId, text, expected_content_hash, dry_run? }` | same as update |
 | `wren_set_tags` | `{ wrenId, add?, remove?, expected_content_hash, dry_run? }` | `{ ..., tags }` or a dry-run diff |
 | `wren_delete_note` | `{ wrenId, confirm: true }` | `{ wrenId, softDeleted, originalPath, trashedPath }` |
-| `wren_move_to_corpus` | `{ wrenId }` | `{ wrenId, fromPath, path, target: "corpus" }` |
+| `wren_move_to_corpus` | `{ wrenId, confirm: true }` | `{ wrenId, fromPath, path, target: "corpus" }` |
 
 - `query` is a case-insensitive substring over title + summary; `tag` is an exact `namespace:value` match; `due_before` keeps notes with `due` ≤ the given ISO date.
 - `limit` defaults to 20, max 50. `cursor` is an opaque pagination token.
-- **Staged `_inbox/` notes are excluded** from search/list (they're pending review) but remain readable by `wrenId` and appear in `wren_get_index` with `inbox: true`.
+- **`location`** (search/list) selects which notes to range over: `"corpus"` (default — live notes, excludes staged), `"inbox"` (only staged `_inbox/` drafts, each hit flagged `inbox: true`), or `"all"`. This is how a triage UI finds AI-created inbox notes; they otherwise stay out of the default results. (All notes remain readable by `wrenId` regardless, and appear in `wren_get_index` with `inbox: true`.)
 - `wren_get_index` returns full per-note detail up to **200 notes**; beyond that it drops the heavier `summary`/`tags` fields (keeping ids + dates) so one call can't blow the context budget.
 
 ### Write-safety model
@@ -41,11 +41,24 @@ Every modifying tool follows these guardrails (KB modules 03/04):
 
 - **Read-first + optimistic concurrency.** `wren_read_note` returns a `contentHash` (`sha256-<hex>` of the body — Wren's FS convention). `update`/`append`/`set_tags` require you to pass it back as `expected_content_hash`. The server re-reads the file and recomputes the hash **live**; if it differs (the note changed underneath you), the write is **rejected as a conflict** — never a blind overwrite. (The gate hashes the body; a tag-only concurrent edit is last-write-wins, matching Wren.)
 - **`dry_run`.** Pass `dry_run: true` to `update`/`append`/`set_tags` to get a diff (changed frontmatter fields + a body line-diff + before/after hashes) **without writing**.
+- **Confirm-scoping (consumer posture).** Only the two tools that commit something a human should approve carry a `confirm: true` gate: `wren_delete_note` and `wren_move_to_corpus` (promoting a draft into the live notes). `create`/`update`/`append`/`set_tags` are **not** confirm-gated — `update`/`append`/`set_tags` rely on `expected_content_hash` + `dry_run`. Whether the *agent* prompts the human for a given action is a consumer decision, deliberately not enforced server-side.
 - **Soft-delete only.** `wren_delete_note` requires `confirm: true` and **moves** the file to a `.trash/` folder — it never hard-deletes. The note disappears from Wren on its next index refresh; recovering it currently means moving the file back out of `.trash/` (Wren has no trash UI — see the flag below).
 - **Namespaced tags.** `wren_set_tags` validates every added tag as `namespace:value` (e.g. `status:todo`); a bare tag is **rejected, never auto-prefixed**.
 - **Untrusted content.** Note bodies are treated as data, never instructions. There is no exfiltration tool, and the server never acts on text embedded in a note body.
 - **Path-traversal safe.** Every write resolves inside the configured notes dir; `..`/absolute escapes are rejected.
 - **Create safety:** a freshly minted `wren-…` id, Wren's `YYYY-MM-DD - <Title>.md` filename (collision-suffixed), Wren-exact frontmatter, and an exclusive write — an existing file is never overwritten. `target: "inbox"` (default) stages into `_inbox/`; `target: "corpus"` writes straight to the live notes.
+
+### Provenance markers
+
+Every create and modify stamps provenance into the note's frontmatter so an AI-authored/edited note is distinguishable from a human one:
+
+| Field | Meaning |
+|---|---|
+| `created_by` | `ai` \| `human` — who first created the note. The MCP writes `ai` on create; on a modify it **preserves an existing `created_by`** and only defaults to `human` when none is present (i.e. the note was authored in Wren). Never clobbered. |
+| `last_edited_by` | `ai` \| `human` — the MCP writes `ai` on every create/modify. |
+| `last_edited` | ISO timestamp of that edit. |
+
+Values follow Wren's frontmatter conventions (unquoted tokens / ISO timestamp, appended after the standard fields). `wren_move_to_corpus` is a relocation, not an edit, so it leaves provenance untouched. The Wren PWA will surface these markers in a later app-side update; until then they're carried in the file and returned in `wren_read_note`'s `frontmatter`.
 
 ### Index reconciliation (model A)
 
