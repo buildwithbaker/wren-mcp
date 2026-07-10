@@ -520,6 +520,26 @@ function decodeCursor(cursor: string | undefined): number {
 // --- Read a single note ------------------------------------------------------
 
 /**
+ * Resolve a catalog-supplied relative path and assert it stays inside the notes
+ * root, returning the absolute path. Rejects `..` traversal and absolute
+ * escapes. `.wren-index.json` is untrusted input (Drive-synced, tamperable
+ * off-device), so the read path must contain it exactly like the write path.
+ */
+export function resolveInsideNotesDir(
+  notesDir: string,
+  rel: string,
+  wrenId: string
+): string {
+  const root = path.resolve(notesDir);
+  const full = path.resolve(root, rel);
+  const relCheck = path.relative(root, full);
+  if (relCheck === '' || relCheck.startsWith('..') || path.isAbsolute(relCheck)) {
+    throw new NotePathError(wrenId, rel);
+  }
+  return full;
+}
+
+/**
  * Read a note by its logical wrenId. Works on any note in the catalog,
  * including staged `_inbox/` notes. Staleness: if the on-disk mtime is newer
  * than the index `updated`, the file is the source of truth — we re-read it and
@@ -535,7 +555,7 @@ export async function readNoteByWrenId(
     throw new NoteNotFoundError(wrenId);
   }
   const rel = entry.path || entry.file;
-  const full = path.join(notesDir, rel);
+  const full = resolveInsideNotesDir(notesDir, rel, wrenId);
   let text: string;
   try {
     text = await fs.readFile(full, 'utf8');
@@ -579,6 +599,17 @@ export class NoteNotFoundError extends Error {
   constructor(wrenId: string) {
     super(`No note with wrenId "${wrenId}" in the catalog.`);
     this.name = 'NoteNotFoundError';
+  }
+}
+
+export class NotePathError extends Error {
+  constructor(wrenId: string, rel: string) {
+    super(
+      `Refusing to read note "${wrenId}": its index path "${rel}" resolves ` +
+        `outside the notes folder. The .wren-index.json entry may be corrupt ` +
+        `or tampered.`
+    );
+    this.name = 'NotePathError';
   }
 }
 

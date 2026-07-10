@@ -29,11 +29,13 @@ Reads follow **index-then-fetch**: search / list / get_index return **metadata o
 | `wren_set_tags` | `{ wrenId, add?, remove?, expected_content_hash, dry_run? }` | `{ ..., tags }` or a dry-run diff |
 | `wren_delete_note` | `{ wrenId, confirm: true }` | `{ wrenId, softDeleted, originalPath, trashedPath }` |
 | `wren_move_to_corpus` | `{ wrenId, confirm: true }` | `{ wrenId, fromPath, path, target: "corpus" }` |
+| `wren_restore_note` | `{ wrenId }` | `{ wrenId, restored, fromTrashPath, path }` |
 
 - `query` is a case-insensitive substring over title + summary; `tag` is an exact `namespace:value` match; `due_before` keeps notes with `due` ≤ the given ISO date.
 - `limit` defaults to 20, max 50. `cursor` is an opaque pagination token.
 - **`location`** (search/list) selects which notes to range over: `"corpus"` (default — live notes, excludes staged), `"inbox"` (only staged `_inbox/` drafts, each hit flagged `inbox: true`), or `"all"`. This is how a triage UI finds AI-created inbox notes; they otherwise stay out of the default results. (All notes remain readable by `wrenId` regardless, and appear in `wren_get_index` with `inbox: true`.)
 - `wren_get_index` returns full per-note detail up to **200 notes**; beyond that it drops the heavier `summary`/`tags` fields (keeping ids + dates) so one call can't blow the context budget.
+- **Untrusted-body envelope.** `wren_read_note`'s human-readable result wraps the note body in an explicit `<untrusted_note_content>` envelope (with a forged-delimiter neutralizer) so a consuming model sees the data/instruction boundary on every read, not just in the tool description. The `structuredContent.body` field stays raw for structural clients.
 
 ### Write-safety model
 
@@ -42,7 +44,7 @@ Every modifying tool follows these guardrails (KB modules 03/04):
 - **Read-first + optimistic concurrency.** `wren_read_note` returns a `contentHash` (`sha256-<hex>` of the body — Wren's FS convention). `update`/`append`/`set_tags` require you to pass it back as `expected_content_hash`. The server re-reads the file and recomputes the hash **live**; if it differs (the note changed underneath you), the write is **rejected as a conflict** — never a blind overwrite. (The gate hashes the body; a tag-only concurrent edit is last-write-wins, matching Wren.)
 - **`dry_run`.** Pass `dry_run: true` to `update`/`append`/`set_tags` to get a diff (changed frontmatter fields + a body line-diff + before/after hashes) **without writing**.
 - **Confirm-scoping (consumer posture).** Only the two tools that commit something a human should approve carry a `confirm: true` gate: `wren_delete_note` and `wren_move_to_corpus` (promoting a draft into the live notes). `create`/`update`/`append`/`set_tags` are **not** confirm-gated — `update`/`append`/`set_tags` rely on `expected_content_hash` + `dry_run`. Whether the *agent* prompts the human for a given action is a consumer decision, deliberately not enforced server-side.
-- **Soft-delete only.** `wren_delete_note` requires `confirm: true` and **moves** the file to a `.trash/` folder — it never hard-deletes. The note disappears from Wren on its next index refresh; recovering it currently means moving the file back out of `.trash/` (Wren has no trash UI — see the flag below).
+- **Soft-delete + restore.** `wren_delete_note` requires `confirm: true` and **moves** the file to a `.trash/` folder — it never hard-deletes. `wren_restore_note` recovers it by id (moves it back to the live notes, content/id unchanged). The note disappears from Wren on delete and reappears on restore at the next index refresh.
 - **Namespaced tags.** `wren_set_tags` validates every added tag as `namespace:value` (e.g. `status:todo`); a bare tag is **rejected, never auto-prefixed**.
 - **Untrusted content.** Note bodies are treated as data, never instructions. There is no exfiltration tool, and the server never acts on text embedded in a note body.
 - **Path-traversal safe.** Every write resolves inside the configured notes dir; `..`/absolute escapes are rejected.
@@ -64,7 +66,7 @@ Values follow Wren's frontmatter conventions (unquoted tokens / ISO timestamp, a
 
 `.wren-index.json` is a **frozen cross-repo contract owned by the Wren PWA**, not this server. The write tools use **model A: Wren re-indexes.** The MCP writes/moves the note `.md` files only and **never edits `.wren-index.json`**; the Wren app regenerates it on its next save/launch (its scan is top-level + `_inbox/`, so it picks up changed/added notes, drops a soft-deleted one, and never descends into `.trash/`). In the gap, the MCP's own reads stay correct via its fallback folder scan + per-note mtime-staleness re-read, so `expected_content_hash` is always computed against live disk content. Changing the index schema would require a coordinated `schemaVersion` bump on the Wren side — out of scope here.
 
-> ⚠ **Flag for review:** `.trash/` is an **MCP-only** soft-delete convention — Wren itself hard-deletes and has no trash concept. A soft-deleted note is safe on disk but invisible to Wren; restoring it is a manual file move today. A future `wren_restore` tool (or Wren-side trash support) would close this loop.
+> **Note:** `.trash/` is an **MCP-only** soft-delete convention — Wren itself hard-deletes and has no trash concept. A soft-deleted note is safe on disk but invisible to Wren until restored. `wren_restore_note` closes this loop in-app (recover by id); a Wren-side trash UI remains a future nicety.
 
 ## Configure the notes folder
 
@@ -83,7 +85,23 @@ If neither is set the server still starts, and every tool returns a clear *"note
 npm run pack       # build -> prune to prod deps -> mcpb pack -> restore dev deps
 ```
 
-Produces **`Wren.mcpb`** (~2.5 MB; bundles `dist/` + runtime deps only). Install it by dragging it into Claude Desktop → Settings → Extensions, then set your notes folder. The bundle is unsigned (side-load only; Connectors Directory submission is deferred). Full steps: [`docs/INSTALL.md`](docs/INSTALL.md).
+Produces **`Wren.mcpb`** (~2.5 MB; bundles `dist/` + runtime deps only). Install it by dragging it into Claude Desktop → Settings → Extensions, then set your notes folder. Full steps: [`docs/INSTALL.md`](docs/INSTALL.md).
+
+## Privacy Policy
+
+**Wren-mcp is a local-only server. Your notes never leave your computer.**
+
+- It runs on your machine, launched by Claude Desktop over stdio. There is no remote server, account, or login.
+- It reads and writes **only** the notes folder you choose (`WREN_NOTES_DIR`). It accesses nothing else on your computer.
+- It makes **no network requests** of any kind — no telemetry, no analytics, no error reporting, no "phone home." It has no code path that sends your notes or any derived data off the device.
+- Note contents are processed in memory only to answer the tool call you invoked, then returned to your Claude Desktop client. Nothing is persisted by this server beyond the note `.md` files in your chosen folder.
+- The author (Build with Baker) cannot see your notes, your usage, or whether you have the extension installed.
+
+Full policy: [`PRIVACY.md`](PRIVACY.md). Security model and vulnerability reporting: [`SECURITY.md`](SECURITY.md).
+
+## Support
+
+Questions, bugs, or feature requests: open an issue at [github.com/buildwithbaker/wren-mcp/issues](https://github.com/buildwithbaker/wren-mcp/issues).
 
 ## Develop
 

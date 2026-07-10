@@ -527,3 +527,79 @@ export async function moveToCorpus(
 
   return { wrenId, fromPath: note.rel, path: targetName, target: 'corpus' };
 }
+
+// --- restore from trash ------------------------------------------------------
+
+export interface RestoreResult {
+  wrenId: string;
+  restored: true;
+  /** Path the note was recovered FROM, e.g. ".trash/2026-06-01 - X.md". */
+  fromTrashPath: string;
+  /** Collision-free path it was restored TO, relative to the notes root. */
+  path: string;
+}
+
+/**
+ * Restore a soft-deleted note: find the file in `<notesDir>/.trash/` whose
+ * frontmatter `id` matches `wrenId`, move it back into the live corpus root under
+ * a collision-free name, and remove the trash copy (write-new-then-delete-old, so
+ * a mid-failure never loses the note). Content/frontmatter are byte-identical — a
+ * relocation, not an edit, so provenance is untouched. The note reappears in Wren
+ * on its next index refresh. This closes the soft-delete loop: a note sent to
+ * `.trash/` by wren_delete_note is recoverable without leaving Claude.
+ *
+ * Trashed notes are NOT in the catalog (both Wren and the MCP skip `.trash/`), so
+ * this scans the trash folder directly rather than going through loadNote.
+ * Throws NoteNotFoundError if no trashed note carries that id.
+ */
+export async function restoreNote(
+  notesDir: string,
+  wrenId: string,
+  now: string = new Date().toISOString()
+): Promise<RestoreResult> {
+  const trashDirFull = safeResolve(notesDir, TRASH_DIR);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(trashDirFull);
+  } catch {
+    // No .trash/ folder => nothing to restore.
+    throw new NoteNotFoundError(wrenId);
+  }
+
+  for (const name of entries) {
+    if (!name.toLowerCase().endsWith('.md')) continue;
+    const trashRel = `${TRASH_DIR}/${name}`;
+    const trashFull = safeResolve(notesDir, trashRel);
+
+    let text: string;
+    try {
+      text = await fs.readFile(trashFull, 'utf8');
+    } catch {
+      continue; // unreadable entry — skip, keep scanning
+    }
+
+    const { frontmatter } = parseFrontmatter(text);
+    if (str(frontmatter.id) !== wrenId) continue;
+
+    const created = str(frontmatter.created) || now;
+    const desired = buildNoteFilename(created, str(frontmatter.title));
+    const targetName = await uniqueNoteName(desired, async (candidate) => {
+      try {
+        await fs.access(safeResolve(notesDir, candidate));
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const targetFull = safeResolve(notesDir, targetName);
+
+    // Exclusive write so we never clobber an existing corpus file, then remove
+    // the trash copy only after the restored file is safely on disk.
+    await fs.writeFile(targetFull, text, { encoding: 'utf8', flag: 'wx' });
+    await fs.unlink(trashFull);
+
+    return { wrenId, restored: true, fromTrashPath: trashRel, path: targetName };
+  }
+
+  throw new NoteNotFoundError(wrenId);
+}
