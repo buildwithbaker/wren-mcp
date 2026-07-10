@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "wren-mcp",
   "display_name": "Wren",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Read and write your local Wren notes in Claude — search, read, create, update, tag, and tidy.",
   "long_description": "Lets Claude Desktop read the notes in your local Wren notes folder (search, list, read, browse the catalog) and write them too: create notes (staged in your Wren _inbox/ for review, or written straight to your notes), update bodies and titles, append text, add or remove tags, soft-delete (moved to a recoverable .trash/ folder, never erased), and promote staged notes. AI-written or AI-edited notes are stamped in their frontmatter (created_by / last_edited_by) so you can tell them apart, and staged drafts are listable for review. Writes are guarded: Claude must read a note first and edits are rejected if the note changed underneath it, so nothing is silently overwritten. Your notes never leave your computer: this is a local server that only touches the folder you choose. Claude Desktop only.",
   "author": {
@@ -31,7 +31,8 @@
     { "name": "wren_append_to_note", "description": "Append text to a note's body, with a read-first conflict check." },
     { "name": "wren_set_tags", "description": "Add/remove namespaced tags on a note, with a read-first conflict check." },
     { "name": "wren_delete_note", "description": "Soft-delete a note to .trash/ (requires confirm:true)." },
-    { "name": "wren_move_to_corpus", "description": "Promote a staged inbox note into the live notes (requires confirm:true)." }
+    { "name": "wren_move_to_corpus", "description": "Promote a staged inbox note into the live notes (requires confirm:true)." },
+    { "name": "wren_restore_note", "description": "Restore a soft-deleted note from .trash/ back to the live notes." }
   ],
   "user_config": {
     "notes_dir": {
@@ -49,5 +50,6 @@
       "node": ">=20.0.0"
     }
   },
-  "license": "MIT"
+  "license": "MIT",
+  "privacy_policies": ["https://github.com/buildwithbaker/wren-mcp/blob/main/PRIVACY.md"]
 }

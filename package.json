@@ -1,6 +1,6 @@
 {
   "name": "wren-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Local stdio MCP server that lets an AI assistant read a Wren notes folder (Build with Baker).",
   "author": "Adam Baker / Build with Baker",

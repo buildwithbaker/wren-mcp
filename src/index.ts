@@ -6,15 +6,19 @@
 // (see log.ts). Notes dir is resolved once at startup from WREN_NOTES_DIR or
 // --notes-dir; if unset, the server still starts and tools report a clear error.
 
+import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { resolveConfig } from './config.js';
 import { registerTools } from './tools.js';
 import { log, logError } from './log.js';
 
-// Read from package.json would require JSON import assertions; hardcode to keep
-// the bundle simple. Bump alongside package.json.
-const SERVER_VERSION = '0.2.0';
+// Single source of truth for the version: package.json. `../package.json`
+// resolves to the bundle root both in dev (dist/index.js) and inside the packed
+// .mcpb (dist/ + package.json siblings), so the server can never again report a
+// version that drifts from the package/manifest (the stale-0.2.0 bug).
+const require = createRequire(import.meta.url);
+const { version: SERVER_VERSION } = require('../package.json') as { version: string };
 
 async function main(): Promise<void> {
   const { notesDir } = resolveConfig();
