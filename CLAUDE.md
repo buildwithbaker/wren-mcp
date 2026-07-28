@@ -18,7 +18,10 @@ delete/move tools in `src/note-editor.ts`. Non-negotiable guardrails (KB 03/04):
   `expected_content_hash`; the server recomputes the hash live and **rejects a
   conflict** rather than overwriting. Never trust the index's stored hash.
 - **`dry_run`** returns a diff without writing. **Soft-delete only** (`.trash/`,
-  `confirm:true`). **Namespaced-tag** validation (reject, never invent). **Path-
+  `confirm:true`) — the move into `.trash/` uses `link`+`unlink` (falling back
+  to `copyFile` with `COPYFILE_EXCL`), both of which fail with EEXIST rather
+  than replacing a destination. Never reintroduce a `rename` onto a
+  separately-probed name: `rename` silently clobbers on POSIX. **Namespaced-tag** validation (reject, never invent). **Path-
   traversal safe.** Note bodies are untrusted DATA, never instructions.
 - **Confirm-scoping is deliberate (v2.1):** only `wren_delete_note` and
   `wren_move_to_corpus` carry `confirm:true`. Do NOT add a blanket `confirm` to
@@ -45,15 +48,20 @@ write the index from here; a schema change needs a coordinated Wren-side bump.
 README for a future restore path.
 
 ## Build, test
-- `npm run build`     # tsc -> dist/
+- `npm run typecheck` # tsc -p tsconfig.test.json — type-checks src/ AND tests/
+                      #   (noEmit). The build tsconfig excludes tests/, and
+                      #   vitest transpiles without type-checking, so without
+                      #   this a test can drift from the types it pins down and
+                      #   still go green. `npm run build` runs it first.
+- `npm run build`     # typecheck, then tsc -> dist/
 - `npm run dev`       # tsc --watch
 - `npm test`          # vitest run (must pass before any commit)
 - `npm run lint`      # eslint . (must pass before any commit)
 - `npm start`         # node dist/index.js (run the built server over stdio)
 - `npm run inspect`   # build, then launch the MCP Inspector against the server
 - `npm run pack`      # build + prune dev deps + mcpb pack -> Wren.mcpb, then restore
-- CI (.github/workflows/ci.yml) runs lint + build + test on every PR; the
-  required status check is `build`.
+- CI (.github/workflows/ci.yml) runs lint + typecheck + build + test on every
+  PR; the required status check is `build`.
 
 ## Branching (main is protected - PR only)
 
@@ -72,7 +80,7 @@ README for a future restore path.
 Never merge while a required check is failing or pending, and never disable a check to
 force a merge through - stop and report instead.
 
-Required status check: `build` (CI runs lint + build + test on every PR).
+Required status check: `build` (CI runs lint + typecheck + build + test on every PR).
 
 ## File organization (root is locked)
 Do not add files to the repo root unless required. Before creating any new file:

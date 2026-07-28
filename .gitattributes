@@ -1,0 +1,10 @@
+# `*.ts diff` forces git to render TypeScript as text in diffs even when a
+# blob trips its binary heuristic. Concretely: before the audit-M3 fix,
+# src/note-writer.ts contained LITERAL control bytes (a raw NUL and a raw 0x1F)
+# inside the CONTROL_CHARS character class, so git classified it as binary and
+# showed "Bin 10895 -> 11624 bytes" instead of the one-line change under
+# review. Diff-only: this sets no `text`/`eol` attribute, so nothing is
+# normalized on checkout and no working tree is rewritten.
+#
+# Root-lock exception approved 2026-07-28 (see CLAUDE.md "File organization").
+*.ts diff

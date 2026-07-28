@@ -16,7 +16,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "build": "npm run typecheck && tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
