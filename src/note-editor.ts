@@ -183,14 +183,81 @@ function assertNoConflict(note: LoadedNote, expectedContentHash: string): void {
   }
 }
 
+// Per-write unique temp suffix. The old fixed `.wren-mcp.tmp` name meant two
+// concurrent writers (two MCP processes, or two tool calls in flight) shared one
+// scratch file and could interleave into each other's temp before either
+// renamed.
+let tmpSeq = 0;
+
 /**
- * Atomically replace a file's contents: write a sibling temp file then rename
- * over the target, so a crash mid-write never leaves a half-written note.
+ * Commit a note write: temp file, LAST-MOMENT re-verify, then atomic rename.
+ *
+ * Audit M1 — the cross-process race with the Wren app. There is no lock here,
+ * and that is a deliberate decision, not an omission:
+ *
+ *   A lock is only a lock if BOTH writers take it, and the Wren app cannot.
+ *   Its browser build writes through the File System Access API, which has no
+ *   exclusive-create primitive — `getFileHandle(name, {create: true})` returns
+ *   the existing file rather than failing, so the app has no way to atomically
+ *   claim a sentinel. A lockfile only this process honors would not stop the
+ *   app from writing (the actual threat M1 names), while adding two brand-new
+ *   failure modes: a stale lock after an MCP crash wedging future writes until
+ *   some timeout heuristic clears it, and a `.lock` file sitting in the user's
+ *   notes folder, syncing to Drive, visible in Finder/Explorer. Strictly worse:
+ *   real new risk, zero coverage of the named one.
+ *
+ * What actually shrinks the exposure is moving the concurrency check as late as
+ * possible. The gate used to run in loadNote(), so the window spanned the read,
+ * the serialization, AND the full temp-file write. It now runs immediately
+ * before the rename, leaving only the gap between that read and the rename
+ * syscall — microseconds, and the rename itself is atomic, so a note is never
+ * torn. Both writers are the same human at one keyboard; a sub-millisecond
+ * last-writer-wins window is an honest place to stop.
+ *
+ * The check re-reads and re-hashes rather than comparing mtime: mtime has 1-2s
+ * granularity on some filesystems (FAT/exFAT on a USB notes folder), so a fast
+ * concurrent save can land inside a single mtime tick. Notes are small; the
+ * extra read is noise.
+ *
+ * @param note   the note being written (for a useful conflict error)
+ * @param text   full file text to commit
+ * @param expectedContentHash body hash the caller verified against; the same
+ *   value is re-checked here against live disk state
  */
-async function atomicWrite(full: string, text: string): Promise<void> {
-  const tmp = `${full}.wren-mcp.tmp`;
-  await fs.writeFile(tmp, text, 'utf8');
-  await fs.rename(tmp, full);
+async function commitWrite(
+  note: LoadedNote,
+  text: string,
+  expectedContentHash: string
+): Promise<void> {
+  const tmp = `${note.full}.${process.pid}.${++tmpSeq}.wren-mcp.tmp`;
+  try {
+    await fs.writeFile(tmp, text, 'utf8');
+
+    // Re-verify against disk as the last thing before committing.
+    let current: string;
+    try {
+      current = await fs.readFile(note.full, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        // The note was deleted between load and commit. Renaming onto it would
+        // resurrect a note the user (or the app) just removed.
+        throw new WriteConflictError(note.wrenId, expectedContentHash, '<deleted>');
+      }
+      throw err;
+    }
+    const { body: rawBody } = parseFrontmatter(current);
+    const live = bodyContentHash(canonicalBody(rawBody));
+    if (live !== expectedContentHash) {
+      throw new WriteConflictError(note.wrenId, expectedContentHash, live);
+    }
+
+    await fs.rename(tmp, note.full);
+  } finally {
+    // A thrown conflict (or any failure) must not leave scratch files in the
+    // user's notes folder, where they would sync to Drive. After a successful
+    // rename the temp is already gone and this is a no-op.
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
 }
 
 /** Build a result payload shared by the modify tools. */
@@ -312,7 +379,7 @@ export async function updateNote(
     lastEditedBy: 'ai',
     lastEdited: now,
   });
-  await atomicWrite(note.full, text);
+  await commitWrite(note, text, input.expectedContentHash);
   return modifyResult(note, next.body, note.rel, now);
 }
 
@@ -363,7 +430,7 @@ export async function appendToNote(
     lastEditedBy: 'ai',
     lastEdited: now,
   });
-  await atomicWrite(note.full, text);
+  await commitWrite(note, text, input.expectedContentHash);
   return modifyResult(note, newBody, note.rel, now);
 }
 
@@ -432,7 +499,7 @@ export async function setTags(
     lastEditedBy: 'ai',
     lastEdited: now,
   });
-  await atomicWrite(note.full, text);
+  await commitWrite(note, text, input.expectedContentHash);
   return { ...modifyResult(note, note.body, note.rel, now), tags: newTags };
 }
 
