@@ -348,10 +348,24 @@ async function parseNoteFile(
       return null;
     }
     const { frontmatter, body } = parseFrontmatter(text);
+    // A note with no `id:` in its frontmatter would normalize to wrenId '' —
+    // and so would every other id-less note in the folder. Every lookup keyed
+    // on wrenId (readNoteByWrenId, update, delete, move) does
+    // `catalog.notes.find(n => n.wrenId === wrenId)`, so a second id-less note
+    // is unreachable and, worse, an empty-string wrenId reaching a write tool
+    // would resolve to whichever id-less note happens to be first (audit M4).
+    // Wren stamps ids on save, so an id-less file is one Wren has not written
+    // yet; skip it from the catalog rather than mint a synthetic id that would
+    // collide with the real one Wren assigns later.
+    const wrenId = str(frontmatter.id);
+    if (!wrenId) {
+      log(`Skipping ${relPath}: no frontmatter id (Wren stamps one on first save).`);
+      return null;
+    }
     const stat = await fs.stat(full);
     const mtimeIso = stat.mtime.toISOString();
     return normalizeEntry({
-      wrenId: str(frontmatter.id),
+      wrenId,
       storageId: relPath,
       path: relPath,
       file,
@@ -550,6 +564,14 @@ export async function readNoteByWrenId(
   catalog: Catalog,
   wrenId: string
 ): Promise<ReadNoteResult> {
+  // Reject an empty id up front rather than letting `find` match the first
+  // entry whose wrenId normalized to '' (audit M4). Index entries are
+  // normalized, not validated, so a hand-edited or truncated
+  // `.wren-index.json` can still carry an id-less row — and '' must never be a
+  // usable handle to it, least of all through the write tools.
+  if (!wrenId || typeof wrenId !== 'string' || wrenId.trim().length === 0) {
+    throw new NoteNotFoundError(wrenId);
+  }
   const entry = catalog.notes.find((n) => n.wrenId === wrenId);
   if (!entry) {
     throw new NoteNotFoundError(wrenId);

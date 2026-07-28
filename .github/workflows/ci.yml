@@ -20,5 +20,9 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run lint --if-present
+      # Type-checks src/ AND tests/ (audit M5) — the build tsconfig excludes
+      # tests/, so before this a test could drift from the types it pins down
+      # and still go green, since vitest transpiles without type-checking.
+      - run: npm run typecheck
       - run: npm run build
       - run: npm test

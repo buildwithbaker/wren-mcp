@@ -26,7 +26,7 @@
 // self-heal via the existing fallback scan + mtime staleness re-read in
 // notes-source.ts, so reads stay correct in the gap. See README / CLAUDE.md.
 
-import { promises as fs } from 'node:fs';
+import { promises as fs, constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import {
   type Catalog,
@@ -144,6 +144,13 @@ function safeResolve(notesDir: string, rel: string): string {
  * the live body contentHash. Throws NoteNotFoundError if absent.
  */
 export async function loadNote(notesDir: string, catalog: Catalog, wrenId: string): Promise<LoadedNote> {
+  // Same guard as readNoteByWrenId: '' must never be a usable handle, or an
+  // empty id from a caller would resolve to the first entry whose wrenId
+  // normalized to '' — and every write tool in this module goes through here
+  // (audit M4).
+  if (!wrenId || typeof wrenId !== 'string' || wrenId.trim().length === 0) {
+    throw new NoteNotFoundError(wrenId);
+  }
   const entry = catalog.notes.find((n) => n.wrenId === wrenId);
   if (!entry) throw new NoteNotFoundError(wrenId);
   const rel = entry.path || entry.file;
@@ -438,6 +445,83 @@ export interface SoftDeleteResult {
   trashedPath: string;
 }
 
+// Trash-name candidates, in order: the note's own filename, then the filename
+// with the (unique) wrenId folded in, then a numeric series. The wrenId variant
+// means two different notes that happen to share a filename never contend, and
+// re-deleting the same note produces a readable, predictable name.
+function trashCandidate(baseName: string, wrenId: string, attempt: number): string {
+  const m = /^(.*)(\.md)$/i.exec(baseName);
+  const stem = m ? m[1] : baseName;
+  const ext = m ? m[2] : '';
+  if (attempt === 0) return baseName;
+  if (attempt === 1) return `${stem} (${wrenId})${ext}`;
+  return `${stem} (${wrenId}-${attempt})${ext}`;
+}
+
+// Errors that mean "this filesystem cannot hard-link", as opposed to "that name
+// is taken". Seen on FAT/exFAT volumes, some network shares, and across mounts.
+const LINK_UNSUPPORTED = new Set(['EXDEV', 'EPERM', 'ENOSYS', 'EOPNOTSUPP', 'EMLINK', 'EACCES']);
+
+const MAX_TRASH_ATTEMPTS = 1000;
+
+/**
+ * Move `srcFull` into `.trash/` without ever overwriting an existing file, and
+ * without a check-then-act window (audit M2).
+ *
+ * The old code called `fs.access` to test a candidate name and then
+ * `fs.rename`d onto it. `rename` silently REPLACES an existing destination on
+ * POSIX, so anything landing on that name between the check and the rename —
+ * a concurrent MCP delete, a sync client, Wren itself — was destroyed by a tool
+ * whose entire promise is "soft-delete, never lose the only copy".
+ *
+ * Both primitives used here fail with EEXIST rather than clobbering:
+ *   - `fs.link` is an atomic exclusive create, so the name is claimed by the
+ *     link succeeding, not by an earlier probe. The source is unlinked after.
+ *   - `fs.copyFile(..., COPYFILE_EXCL)` is the same guarantee for filesystems
+ *     that cannot hard-link, and also covers the cross-device case the old code
+ *     handled with an EXDEV fallback.
+ *
+ * @returns the file name actually used inside `.trash/`
+ */
+async function moveIntoTrash(
+  notesDir: string,
+  srcFull: string,
+  baseName: string,
+  wrenId: string
+): Promise<string> {
+  let canLink = true;
+  for (let attempt = 0; attempt < MAX_TRASH_ATTEMPTS; attempt++) {
+    const candidate = trashCandidate(baseName, wrenId, attempt);
+    const targetFull = safeResolve(notesDir, `${TRASH_DIR}/${candidate}`);
+
+    if (canLink) {
+      try {
+        await fs.link(srcFull, targetFull);
+        await fs.unlink(srcFull);
+        return candidate;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code ?? '';
+        if (code === 'EEXIST') continue;
+        if (!LINK_UNSUPPORTED.has(code)) throw err;
+        // Fall through to the copy path and stop trying to link.
+        canLink = false;
+      }
+    }
+
+    try {
+      await fs.copyFile(srcFull, targetFull, fsConstants.COPYFILE_EXCL);
+      await fs.unlink(srcFull);
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') continue;
+      throw err;
+    }
+  }
+  throw new Error(
+    `Could not find a free name in ${TRASH_DIR}/ for "${baseName}" after ${MAX_TRASH_ATTEMPTS} attempts.`
+  );
+}
+
 /**
  * Soft-delete: MOVE the note file into `<notesDir>/.trash/` (created on demand),
  * never unlink the only copy. Wren ignores `.trash/` (its scans are top-level +
@@ -453,28 +537,7 @@ export async function softDeleteNote(
   const trashDirFull = safeResolve(notesDir, TRASH_DIR);
   await fs.mkdir(trashDirFull, { recursive: true });
 
-  const baseName = path.basename(note.rel);
-  const targetName = await uniqueNoteName(baseName, async (name) => {
-    try {
-      await fs.access(path.join(trashDirFull, name));
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  const targetFull = safeResolve(notesDir, `${TRASH_DIR}/${targetName}`);
-
-  try {
-    await fs.rename(note.full, targetFull);
-  } catch (err) {
-    // Cross-device rename (EXDEV) — fall back to copy + unlink.
-    if ((err as NodeJS.ErrnoException)?.code === 'EXDEV') {
-      await fs.copyFile(note.full, targetFull);
-      await fs.unlink(note.full);
-    } else {
-      throw err;
-    }
-  }
+  const targetName = await moveIntoTrash(notesDir, note.full, path.basename(note.rel), wrenId);
 
   return {
     wrenId,

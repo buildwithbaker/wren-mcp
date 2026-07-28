@@ -1,0 +1,26 @@
+{
+  // Type-checks the TESTS as well as src/ (audit M5).
+  //
+  // The build tsconfig excludes tests/ on purpose: `npm run build` emits to
+  // dist/ with rootDir src/, and pulling tests in would either change the
+  // output layout or fail outright. So `tsc` never looked at a single test
+  // file, and a test could reference a function that no longer exists, pass
+  // the wrong argument shape, or drift from the types it is supposed to be
+  // pinning down — and still go green, because vitest transpiles without
+  // type-checking.
+  //
+  // This config type-checks only (noEmit); `npm run typecheck` runs it and CI
+  // runs that before the build.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    // rootDir is src/ in the build config so dist/ has a flat layout; nothing
+    // is emitted here, so widen it to the repo root to take tests/ in.
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

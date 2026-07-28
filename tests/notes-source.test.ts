@@ -173,7 +173,9 @@ describe('searchNotes', () => {
     expect(hit.inbox).toBeUndefined();
   });
   it('returns metadata only (no body field)', () => {
-    const hit = searchNotes(cat, { query: 'grocery' })[0] as Record<string, unknown>;
+    // `as unknown as` because SearchHit has no index signature — the direct
+    // cast is the error the new tests/ typecheck (audit M5) caught.
+    const hit = searchNotes(cat, { query: 'grocery' })[0] as unknown as Record<string, unknown>;
     expect('body' in hit).toBe(false);
     expect(Object.keys(hit).sort()).toEqual(['due', 'summary', 'tags', 'title', 'updated', 'wrenId'].sort());
   });
