@@ -1,6 +1,6 @@
 # wren-mcp
 
-A local **stdio MCP server** that lets an AI assistant **read and write** your [Wren](https://wren-ckn.pages.dev) notes — search, list, read, browse the catalog, **create, update, append, tag, soft-delete, and promote** notes. It consumes Wren's AI-readable layer (the frozen `.wren-index.json` catalog, the note frontmatter format, and the `_inbox/` staging convention) and never modifies the Wren app's code. Writes go to the note `.md` files only; Wren re-generates its index on its next save/launch (see [Index reconciliation](#index-reconciliation-model-a)).
+A local **stdio MCP server** that lets an AI assistant **read and write** your [Wren](https://wren.buildwithbaker.io) notes — search, list, read, browse the catalog, **create, update, append, tag, soft-delete, and promote** notes. It consumes Wren's AI-readable layer (the frozen `.wren-index.json` catalog, the note frontmatter format, and the `_inbox/` staging convention) and never modifies the Wren app's code. Writes go to the note `.md` files only; Wren re-generates its index on its next save/launch (see [Index reconciliation](#index-reconciliation-model-a)).
 
 > **One-click install:** package it as a Claude Desktop extension with `npm run pack` (produces `Wren.mcpb`) — see [`docs/INSTALL.md`](docs/INSTALL.md).
 
