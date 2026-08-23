@@ -6,7 +6,7 @@ Module map and conventions for the Wren MCP server. Pairs with the root [`README
 
 ## 1. What it is
 
-A local **stdio** MCP server exposing read access to a Wren notes folder. It is a **consumer** of Wren's AI-readable layer (Phases 1–4): the stable `wren-…` frontmatter ids, the frozen `.wren-index.json` catalog (schemaVersion 1), and the `_inbox/` staging subfolder. It does not modify the Wren PWA repo or the notes (read-only in v0.1).
+A local **stdio** MCP server exposing read and write access to a Wren notes folder. It is a **consumer** of Wren's AI-readable layer (Phases 1–4): the stable `wren-…` frontmatter ids, the frozen `.wren-index.json` catalog (schemaVersion 1), and the `_inbox/` staging subfolder. It does not modify the Wren PWA repo. It was read-only in v0.1; since v0.2 it also writes, but only to the note `.md` files - never to `.wren-index.json`, which Wren regenerates itself.
 
 Transport is **stdio**: the client launches `node dist/index.js` as a subprocess and speaks JSON-RPC over stdin/stdout. **stdout is the protocol channel** — all diagnostics go to stderr.
 
@@ -36,16 +36,32 @@ wren-mcp/
                             (fallback) / scanInboxNotes, searchNotes / listNotes
                             / readNoteByWrenId / getIndexSummary, parseFrontmatter,
                             NoteNotFoundError.
-    note-writer.ts        ★ the write layer (unit-tested): generateNoteId /
+    note-writer.ts        ★ the create layer (unit-tested): generateNoteId /
                             buildNoteFilename / uniqueNoteName / serializeStagedNote
-                            / createInboxNote. Mirrors Wren's note conventions so
-                            the PWA reads created notes back. Writes ONLY _inbox/.
-    tools.ts              registerTools(server, ctx): the 5 tools as thin wrappers
-                          over notes-source (reads) + note-writer (create).
+                            / serializeNoteFile / isValidNamespacedTag / createNote
+                            / createInboxNote, plus the provenance keys. Mirrors
+                            Wren's note conventions so the PWA reads created notes
+                            back. Creates into _inbox/ (default) or the corpus;
+                            never overwrites an existing file.
+    note-editor.ts        ★ the modify layer (unit-tested): loadNote, updateNote /
+                            appendToNote / setTags behind the expected_content_hash
+                            read-first gate (WriteConflictError) with dry-run
+                            lineDiff, softDeleteNote / restoreNote via .trash/,
+                            moveToCorpus. Every resolved path is asserted inside
+                            the notes dir.
+    tools.ts              registerTools(server, ctx): the 11 tools as thin wrappers
+                          over notes-source (4 reads) + note-writer / note-editor
+                          (7 writes).
 
   tests/
     notes-source.test.ts  read-layer vitest suite over real temp folders.
-    note-writer.test.ts   write-layer vitest suite (filename/frontmatter/safety).
+    note-writer.test.ts   create-layer vitest suite (filename/frontmatter/safety).
+    note-editor.test.ts   modify-layer vitest suite (hash gate, diffs, trash).
+    tools-write.test.ts   write tools end-to-end through registerTools.
+    commit-write-race.test.ts   concurrent-write / conflict-gate regressions.
+    audit-r3-hardening.test.ts  audit R3 hardening regressions.
+    v3-hardening.test.ts        v3 hardening regressions.
+    drive-robustness.test.ts    Drive-synced folder edge cases.
     e2e-client.mjs        manual end-to-end harness (spawns the server with a
                           real MCP client over stdio). Not in the vitest run.
 
