@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "wren-mcp",
   "display_name": "Wren",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Read and write your local Wren notes in Claude — search, read, create, update, tag, and tidy.",
   "long_description": "Lets Claude Desktop read the notes in your local Wren notes folder (search, list, read, browse the catalog) and write them too: create notes (staged in your Wren _inbox/ for review, or written straight to your notes), update bodies and titles, append text, add or remove tags, soft-delete (moved to a recoverable .trash/ folder, never erased), and promote staged notes. AI-written or AI-edited notes are stamped in their frontmatter (created_by / last_edited_by) so you can tell them apart, and staged drafts are listable for review. Writes are guarded: Claude must read a note first and edits are rejected if the note changed underneath it, so nothing is silently overwritten. Your notes never leave your computer: this is a local server that only touches the folder you choose. Claude Desktop only.",
   "author": {
