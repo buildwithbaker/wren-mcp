@@ -25,7 +25,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "inspect": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
-    "pack": "npm run build && npm prune --omit=dev && npx @anthropic-ai/mcpb pack . Wren.mcpb && npm install"
+    "pack": "npm run build && npm prune --omit=dev --no-save && npx @anthropic-ai/mcpb pack . Wren.mcpb && npm ci"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
