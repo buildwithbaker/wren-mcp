@@ -3,6 +3,20 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule: { interval: "weekly" }
+    ignore:
+      # The manifest's runtime floor is Node >=20, so the types stay on the
+      # 20 line; a newer major would type-check APIs Node 20 does not have.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # A TypeScript major (e.g. 7, the compiler rewrite) gets its own
+      # evaluation by hand, not a Dependabot PR.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # eslint, its plugins and typescript-eslint share peer ranges; bumping
+      # one alone can fail `npm ci` with ERESOLVE. Move them together.
+      lint:
+        patterns: ["eslint", "@eslint/*", "typescript-eslint", "globals"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule: { interval: "weekly" }
