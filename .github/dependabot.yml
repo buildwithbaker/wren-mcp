@@ -12,6 +12,10 @@ updates:
       # evaluation by hand, not a Dependabot PR.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # zod 4 is a runtime major touching every tool schema; deferred to a
+      # hand-evaluated 0.4.0 after v0.3.2 clears directory review.
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
     groups:
       # eslint, its plugins and typescript-eslint share peer ranges; bumping
       # one alone can fail `npm ci` with ERESOLVE. Move them together.
