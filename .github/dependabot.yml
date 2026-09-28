@@ -16,6 +16,10 @@ updates:
       # hand-evaluated 0.4.0 after v0.3.2 clears directory review.
       - dependency-name: "zod"
         update-types: ["version-update:semver-major"]
+      # vitest 5 requires @types/node 22+, and types stay on the 20 line to
+      # match the runtime floor; deferred to 0.4.0 with zod 4.
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     groups:
       # eslint, its plugins and typescript-eslint share peer ranges; bumping
       # one alone can fail `npm ci` with ERESOLVE. Move them together.
